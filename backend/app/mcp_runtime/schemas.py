@@ -26,6 +26,8 @@ class DatabaseQueryResult(BaseModel):
     rows: list[dict[str, Any]] = Field(default_factory=list, description="查询结果，最多200行")
     row_count: int = Field(default=0, description="返回结果行数")
     error: str | None = Field(default=None, description="执行失败时的错误信息")
+    error_type: str | None = Field(default=None, description="结构化错误类别")
+    retryable: bool = Field(default=False, description="是否允许模型修正SQL后重试")
 
 
 class ChartSpecResult(BaseModel):

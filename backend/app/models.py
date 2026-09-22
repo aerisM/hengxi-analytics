@@ -49,6 +49,7 @@ class Clarification(BaseModel):
     question: str
     reason: str
     options: list[ClarificationOption]
+    allow_free_text: bool = False
 
 
 class Interpretation(BaseModel):
@@ -90,6 +91,7 @@ class QueryResult(BaseModel):
     route_reason: str | None = None
     retrieval: dict[str, Any] | None = None
     execution_log: list[dict[str, Any]] = Field(default_factory=list)
+    stage_timings_ms: list[dict[str, Any]] = Field(default_factory=list)
     tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     result_title: str | None = None
     analysis_sources: list[dict[str, Any]] = Field(default_factory=list)

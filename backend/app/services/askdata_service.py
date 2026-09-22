@@ -117,13 +117,16 @@ class AskDataService:
         if task.get("user_id", AccessController.DEFAULT_USER) != access_scope.user_id:
             raise PermissionError("无权访问该查询任务")
         current: QueryResult = task["result"]
-        if not current.clarification or option_id not in {item.id for item in current.clarification.options}:
+        if not current.clarification or (
+            not current.clarification.allow_free_text
+            and option_id not in {item.id for item in current.clarification.options}
+        ):
             raise ValueError(option_id)
-        option = next(item for item in current.clarification.options if item.id == option_id)
+        option = next((item for item in current.clarification.options if item.id == option_id), None)
         self.context.archive.save_message(
             task["session_id"],
             "user",
-            user_message or option.label,
+            user_message or (option.label if option else option_id),
             task_id=task_id,
             metadata={"type": "clarification", "option_id": option_id},
         )

@@ -33,6 +33,7 @@ class QueryState(TypedDict, total=False):
     mcp_execution: dict[str, Any]
     mcp_tool_trace: list[dict[str, Any]]
     execution_log: list[dict[str, Any]]
+    stage_timings_ms: list[dict[str, Any]]
     tool_calls: list[dict[str, Any]]
     workflow_mode: str
     result: dict[str, Any]

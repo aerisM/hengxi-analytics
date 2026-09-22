@@ -19,6 +19,8 @@ class SchemaGraphBuilder:
         self,
         hits: list[dict[str, Any]],
         access_scope: AccessScope | dict[str, Any] | None = None,
+        *,
+        include_time_fields: bool = False,
     ) -> dict[str, Any]:
         scope = (
             access_scope
@@ -80,6 +82,35 @@ class SchemaGraphBuilder:
                     "source": "relation_key",
                     "score": 1.0,
                 }
+
+        # 时间过滤需要事件日期；Rerank 未命中时仍给模型可用的日期字段，
+        # 但只从已授权、已进入关联图的表补充，不扩大数据库访问范围。
+        if include_time_fields:
+            for table_id in graph_tables:
+                table = self.tables.get(table_id)
+                if not table:
+                    continue
+                for definition in table.get("fields", []):
+                    if definition.get("role") != "time":
+                        continue
+                    field_name = definition["name"]
+                    doc_id = f"{table_id}.{field_name}"
+                    if doc_id in fields:
+                        continue
+                    table_name = physical_table_name(table)
+                    fields[doc_id] = {
+                        "id": doc_id,
+                        "table_id": table_id,
+                        "table_name": table_name,
+                        "sql_name": f"{table_name}.{field_name}",
+                        "name": field_name,
+                        "label": definition.get("label", field_name),
+                        "type": definition.get("type", "日期"),
+                        "description": definition.get("description", "时间字段"),
+                        "role": "time",
+                        "source": "temporal_context",
+                        "score": 0.0,
+                    }
 
         tables = [
             {

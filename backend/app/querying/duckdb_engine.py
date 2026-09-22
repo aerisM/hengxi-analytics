@@ -21,6 +21,14 @@ from .models import SqlExecution
 DATABASE_ROOT = BASE_DIR / "data" / "databases"
 
 
+class SqlReferenceError(ValueError):
+    """SQL引用了不存在的表，可由模型在Schema约束下修正。"""
+
+
+class DatabaseUnavailableError(ValueError):
+    """本地数据源缺失，重写SQL不能修复。"""
+
+
 class DuckDbEngine:
     """将 CSV 目录映射为只读 DuckDB 数据库。
 
@@ -38,7 +46,13 @@ class DuckDbEngine:
     ) -> SqlExecution:
         try:
             safe_sql = self._validate_sql(database, sql, access_scope)
-            with self.connect(database) as connection:
+            statement = sqlglot.parse_one(safe_sql, read="duckdb")
+            cte_names = {cte.alias_or_name for cte in statement.find_all(exp.CTE)}
+            referenced_tables = {
+                table.name for table in statement.find_all(exp.Table)
+                if table.name not in cte_names
+            }
+            with self.connect(database, referenced_tables) as connection:
                 cursor = connection.execute(safe_sql)
                 raw_rows = cursor.fetchmany(201)
                 columns = [item[0] for item in cursor.description or []]
@@ -47,19 +61,36 @@ class DuckDbEngine:
                     for row in raw_rows[:200]
                 ]
             return SqlExecution(safe_sql, True, columns, rows)
-        except (ValueError, ParseError, duckdb.Error, OSError) as exc:
-            return SqlExecution(sql, False, error=str(exc))
+        except SqlReferenceError as exc:
+            return SqlExecution(sql, False, error=str(exc), error_type="sql_reference", retryable=True)
+        except ParseError as exc:
+            return SqlExecution(sql, False, error=str(exc), error_type="sql_syntax", retryable=True)
+        except (duckdb.BinderException, duckdb.CatalogException, duckdb.ParserException) as exc:
+            return SqlExecution(sql, False, error=str(exc), error_type="sql_execution", retryable=True)
+        except DatabaseUnavailableError as exc:
+            return SqlExecution(sql, False, error=str(exc), error_type="database_error")
+        except ValueError as exc:
+            return SqlExecution(sql, False, error=str(exc), error_type="sql_policy")
+        except (duckdb.Error, OSError) as exc:
+            return SqlExecution(sql, False, error=str(exc), error_type="database_error")
 
     @contextmanager
-    def connect(self, database: str) -> Iterator[duckdb.DuckDBPyConnection]:
-        """创建内存连接并将 CSV 文件注册为只读视图。"""
+    def connect(
+        self, database: str, tables: set[str] | None = None
+    ) -> Iterator[duckdb.DuckDBPyConnection]:
+        """创建内存连接；执行查询时只注册SQL实际引用的CSV视图。"""
         folder = self._database_folder(database)
         connection = duckdb.connect(":memory:")
         try:
-            csv_files = sorted(folder.glob("*.csv"))
-            if not csv_files:
-                raise ValueError(f"数据库文件夹没有CSV表：{folder}")
+            csv_files = (
+                [folder / f"{table}.csv" for table in sorted(tables)]
+                if tables is not None else sorted(folder.glob("*.csv"))
+            )
+            if not csv_files and tables is None:
+                raise DatabaseUnavailableError(f"数据库文件夹没有CSV表：{folder}")
             for csv_path in csv_files:
+                if not csv_path.is_file():
+                    raise DatabaseUnavailableError(f"数据库中不存在CSV表：{csv_path.stem}")
                 table = csv_path.stem
                 if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", table):
                     raise ValueError(f"CSV文件名不能作为安全表名：{csv_path.name}")
@@ -121,7 +152,7 @@ class DuckDbEngine:
         }
         unknown = {name for name in referenced if name not in allowed}
         if unknown:
-            raise ValueError(f"SQL引用了未知数据表：{', '.join(sorted(unknown))}")
+            raise SqlReferenceError(f"SQL引用了未知数据表：{', '.join(sorted(unknown))}")
         if access_scope:
             denied = {
                 table
@@ -138,7 +169,7 @@ class DuckDbEngine:
         folder = (self.database_root / database).resolve()
         root = self.database_root.resolve()
         if root not in folder.parents or not folder.is_dir():
-            raise ValueError(f"本地CSV数据库不存在：{database}")
+            raise DatabaseUnavailableError(f"本地CSV数据库不存在：{database}")
         return folder
 
     @staticmethod

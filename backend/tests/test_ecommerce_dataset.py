@@ -76,6 +76,35 @@ class EcommerceDatasetTest(unittest.TestCase):
         self.assertIn("orders.paid_amount", SchemaGraphBuilder.context_text(graph))
         self.assertTrue(all(join.get("left_table_name") and join.get("right_table_name") for join in graph["joins"]))
 
+    def test_time_filter_adds_order_date_from_connected_table(self) -> None:
+        hits = [{
+            "doc_id": "ecommerce_ops.order_items.paid_amount",
+            "database_id": "ecommerce_ops",
+            "table_id": "ecommerce_ops.order_items",
+            "field_name": "paid_amount",
+            "field_label": "实付金额",
+            "field_type": "数值",
+            "field_description": "订单明细实付金额",
+            "field_role": "metric",
+            "score": 0.9,
+        }, {
+            "doc_id": "ecommerce_ops.user_memberships.member_level",
+            "database_id": "ecommerce_ops",
+            "table_id": "ecommerce_ops.user_memberships",
+            "field_name": "member_level",
+            "field_label": "会员等级",
+            "field_type": "文本",
+            "field_description": "会员等级",
+            "field_role": "dimension",
+            "score": 0.9,
+        }]
+        graph = SchemaGraphBuilder().build(
+            hits, AccessController().resolve("demo_current_sales"), include_time_fields=True
+        )
+
+        self.assertIn("ecommerce_ops.orders.ordered_at", {field["id"] for field in graph["fields"]})
+        self.assertIn("orders.ordered_at", SchemaGraphBuilder.context_text(graph))
+
     def test_ecommerce_database_has_database_level_access(self) -> None:
         scope = AccessController().resolve("demo_current_sales")
         ecommerce_tables = {

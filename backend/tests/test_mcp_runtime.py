@@ -110,10 +110,40 @@ class McpRuntimeTest(unittest.TestCase):
 
         self.assertFalse(select_star["success"])
         self.assertIn("SELECT *", select_star["error"])
+        self.assertEqual(select_star["error_type"], "sql_policy")
+        self.assertFalse(select_star["retryable"])
         self.assertFalse(update["success"])
         self.assertIn("SELECT/WITH", update["error"])
+        self.assertFalse(update["retryable"])
         self.assertFalse(multiple["success"])
         self.assertIn("一条SQL", multiple["error"])
+        self.assertFalse(multiple["retryable"])
+
+    def test_sql_reference_and_binding_errors_are_retryable(self) -> None:
+        unknown_table = self.client.call_tool(
+            "query_askdata_mock", {"sql": "SELECT order_id FROM columns"}
+        )
+        unknown_column = self.client.call_tool(
+            "query_askdata_mock", {"sql": "SELECT missing_column FROM orders_current"}
+        )
+        syntax_error = self.client.call_tool(
+            "query_askdata_mock", {"sql": "SELECT FROM orders_current"}
+        )
+
+        self.assertEqual(unknown_table["error_type"], "sql_reference")
+        self.assertTrue(unknown_table["retryable"])
+        self.assertEqual(unknown_column["error_type"], "sql_execution")
+        self.assertTrue(unknown_column["retryable"])
+        self.assertEqual(syntax_error["error_type"], "sql_execution")
+        self.assertTrue(syntax_error["retryable"])
+
+    def test_unavailable_database_is_not_retryable(self) -> None:
+        result = DuckDbEngine(Path(self.temp_dir.name) / "missing_databases").execute(
+            "askdata_mock", "SELECT 1 AS value"
+        )
+        self.assertFalse(result.success)
+        self.assertEqual(result.error_type, "database_error")
+        self.assertFalse(result.retryable)
 
     def test_execution_rechecks_table_permission_inside_cte(self) -> None:
         scope = AccessScope(
@@ -143,6 +173,8 @@ class McpRuntimeTest(unittest.TestCase):
 
         self.assertFalse(result["success"])
         self.assertIn("无权访问", result["error"])
+        self.assertEqual(result["error_type"], "sql_policy")
+        self.assertFalse(result["retryable"])
 
 
 if __name__ == "__main__":

@@ -11,4 +11,5 @@ class SqlExecution:
     columns: list[str] = field(default_factory=list)
     rows: list[dict[str, Any]] = field(default_factory=list)
     error: str | None = None
-
+    error_type: str | None = None
+    retryable: bool = False

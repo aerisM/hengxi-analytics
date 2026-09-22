@@ -40,6 +40,8 @@ def build_database_query_tool(
             rows=execution.rows,
             row_count=len(execution.rows),
             error=execution.error,
+            error_type=execution.error_type,
+            retryable=execution.retryable,
         )
 
     query_database.__name__ = f"query_{database}"

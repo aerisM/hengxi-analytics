@@ -275,6 +275,8 @@ class SessionContext:
     def match_clarification(text: str, result: QueryResult) -> str | None:
         if not result.clarification:
             return None
+        if result.clarification.allow_free_text:
+            return text.strip() or None
         normalized = text.strip().lower().replace(" ", "")
         options = result.clarification.options
         for option in options:

@@ -62,6 +62,8 @@ class RequestPreprocessor:
 上下文聚合：只在当前问题依赖上文时理解和补全语义，不要拼接无关历史。
 仅当action=database_query时，将问题改写为可独立理解的standalone_query，并提取字段级
 Schema检索信息。data_qa和direct_response不提取Schema信息。
+metrics只填写用户明确说出的指标，不要从“最好”等评价词猜测业务指标。
+用户请求排序、排名或前几名时，在operations中加入ranking，即使排名指标尚未明确。
 
 只返回JSON：
 {

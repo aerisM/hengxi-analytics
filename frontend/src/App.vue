@@ -29,7 +29,7 @@ interface HistoricalResultTable {
 
 const SAVED_TABLE_LIMIT = 8
 const FIELD_LIBRARY_LIMIT = 12
-const prompts = ["查询本月各地区销售额", "按客户等级统计本月销售额", "对比本月各地区销售额和销售目标"]
+const prompts = ["按地区统计2026年8月销售额", "按客户等级统计2026年8月销售额", "对比2026年8月各地区销售额与销售目标"]
 const input = ref("")
 const loading = ref(false)
 const pendingQuery = ref("")
@@ -449,22 +449,23 @@ function clarificationHint(result: QueryResult) {
 </script>
 
 <template>
-  <div v-if="!authReady" class="auth-loading"><span></span><p>正在连接 AskData…</p></div>
+  <div v-if="!authReady" class="auth-loading"><span></span><p>正在连接衡析工作台…</p></div>
 
   <main v-else-if="!authUser" class="login-page">
     <section class="login-intro">
-      <div class="login-brand"><span>A</span><strong>AskData</strong></div>
+      <div class="login-brand"><span>衡</span><strong>衡析</strong><small>企业经营分析工作台</small></div>
       <div>
-        <p class="kicker">AI DATA ASSISTANT</p>
-        <h1>用自然语言，<br>读懂你的数据。</h1>
-        <p>字段级 Schema 检索、权限隔离和可保存的数据记忆，都从一个问题开始。</p>
+        <p class="kicker">BUSINESS ANALYTICS WORKSPACE</p>
+        <h1>让经营问题，<br>得到数据回答。</h1>
+        <p>用日常语言查询销售、客户与经营指标，轻松获取清晰的数据结果和分析报告。</p>
+        <div class="login-capabilities"><span>自然语言查数</span><span>查询口径确认</span><span>结果与报表导出</span></div>
       </div>
-      <small>FastAPI · LangGraph · MCP</small>
+      <small>本地演示环境 · 使用示例数据 · 非生产系统</small>
     </section>
 
     <section class="login-side">
       <form class="login-card" @submit.prevent="loginUser">
-        <header><span class="login-mark">A</span><div><h2>欢迎回来</h2><p>登录 AskData Studio</p></div></header>
+        <header><span class="login-mark">衡</span><div><h2>欢迎使用衡析</h2><p>登录企业经营分析工作台</p></div></header>
         <label>
           <span>账号</span>
           <input v-model="loginUsername" autocomplete="username" placeholder="请输入账号">
@@ -487,16 +488,16 @@ function clarificationHint(result: QueryResult) {
           </button>
           <button type="button" @click="useMockAccount('sales', 'sales123')">
             <span class="account-icon user">销</span>
-            <span><strong>sales</strong><small>电商运营 · ecommerce_ops</small></span>
+            <span><strong>sales</strong><small>电商运营演示数据</small></span>
             <code>sales123</code>
           </button>
           <button type="button" @click="useMockAccount('mock', 'mock123')">
             <span class="account-icon mock">示</span>
-            <span><strong>mock</strong><small>基础演示 · askdata_mock</small></span>
+            <span><strong>mock</strong><small>基础销售演示数据</small></span>
             <code>mock123</code>
           </button>
         </div>
-        <small class="login-note">Mock 登录仅用于本地学习，不适合生产环境。</small>
+        <small class="login-note">演示账号仅用于本地体验，不适合生产环境。</small>
       </form>
     </section>
   </main>
@@ -504,8 +505,8 @@ function clarificationHint(result: QueryResult) {
   <div v-else class="app-layout">
     <aside class="history-sidebar" :class="{ open: leftOpen }">
       <div class="brand-row">
-        <span class="brand-symbol">A</span>
-        <div><strong>AskData</strong><small>AI 数据分析</small></div>
+        <span class="brand-symbol">衡</span>
+        <div><strong>衡析</strong><small>企业经营分析</small></div>
       </div>
 
       <button class="new-chat" :disabled="loading || !activeConversation?.turns.length" @click="createConversation"><span>＋</span>新建对话</button>
@@ -540,10 +541,16 @@ function clarificationHint(result: QueryResult) {
         <button class="mobile-menu" @click="leftOpen = !leftOpen">☰</button>
         <div>
           <strong>{{ activeConversation?.title ?? "新对话" }}</strong>
-          <span>自然语言问数</span>
+          <span>经营数据工作台</span>
         </div>
-        <button class="config-trigger" @click="rightOpen = !rightOpen">上下文设置</button>
-        <span class="model-state"><i></i> 智能确认模式</span>
+        <button
+          class="config-trigger"
+          type="button"
+          aria-controls="advanced-settings-panel"
+          :aria-expanded="rightOpen"
+          @click="rightOpen = !rightOpen"
+        >高级分析设置</button>
+        <span class="model-state"><i></i> 查询口径可确认</span>
       </header>
 
       <section ref="conversationScroll" class="conversation-scroll">
@@ -551,10 +558,11 @@ function clarificationHint(result: QueryResult) {
         <div :key="activeConversationId" class="conversation-view">
         <div v-if="!activeConversation?.turns.length && !loading" class="welcome-panel">
           <div class="welcome-copy">
-            <span class="welcome-mark">✦</span>
-            <p class="kicker">ASKDATA STUDIO</p>
-            <h1>想从数据里了解什么？</h1>
-            <p>查询结果会以清晰的表格卡片展示，并支持分页和Excel导出。</p>
+            <span class="welcome-mark">衡</span>
+            <p class="kicker">ENTERPRISE DATA ANALYTICS</p>
+            <h1>从一个经营问题开始</h1>
+            <p>查询销售、客户和目标完成情况；关键口径不明确时，系统会先向你确认。</p>
+            <small class="demo-data-note">以下示例使用 2026 年 8 月演示数据</small>
             <div class="prompt-list">
               <button v-for="prompt in prompts" :key="prompt" @click="submit(prompt)">
                 <span>↗</span>{{ prompt }}
@@ -571,28 +579,40 @@ function clarificationHint(result: QueryResult) {
             </div>
 
             <div class="assistant-message">
-              <div class="message-avatar assistant">A</div>
+              <div class="message-avatar assistant">衡</div>
               <div class="message-body assistant-body">
                 <div class="answer-heading" :class="{ 'qa-heading': turn.result.route !== 'database_query' }">
-                  <div><small>AskData</small><strong v-if="turn.result.route === 'database_query'">{{ turn.result.status === "failed" ? "处理失败" : turn.result.status === "waiting_clarification" ? "需要补充信息" : "查询完成" }}</strong></div>
+                  <div><small>衡析 · 数据助手</small><strong v-if="turn.result.route === 'database_query'">{{ turn.result.status === "failed" ? "处理失败" : turn.result.status === "waiting_clarification" ? "需要补充信息" : "查询完成" }}</strong></div>
                   <span v-if="turn.result.route === 'database_query' && turn.result.status === 'completed'">
-                    {{ turn.result.workflow_mode === "single_database_agent" ? "单库智能体" : "多库流程" }}
+                    {{ turn.result.workflow_mode === "single_database_agent" ? "数据查询" : "跨库分析" }}
                   </span>
                 </div>
 
                 <div v-if="turn.result.status === 'waiting_clarification'" class="natural-clarification">
                   <p>{{ turn.result.clarification?.question }}</p>
                   <small>{{ turn.result.clarification?.reason }}</small>
-                  <span v-if="clarificationHint(turn.result)">请直接回复：{{ clarificationHint(turn.result) }}</span>
+                  <span v-if="turn.result.clarification?.allow_free_text">请直接回复具体指标名称</span>
+                  <span v-else-if="clarificationHint(turn.result)">请直接回复：{{ clarificationHint(turn.result) }}</span>
                 </div>
 
-                <details v-if="turn.result.retrieval && turn.result.status !== 'waiting_clarification'" class="execution-details">
-                  <summary>查看检索过程</summary>
+                <details v-if="turn.result.retrieval" class="execution-details">
+                  <summary>查看数据匹配与处理过程</summary>
                   <div class="execution-strip">
                     <span>BM25 {{ turn.result.retrieval.bm25_count }} · Dense {{ turn.result.retrieval.dense_count }}</span>
                     <span>RRF {{ turn.result.retrieval.rrf_count }} → Rerank {{ turn.result.retrieval.selected_count }} 字段</span>
                     <span>阈值 ≥ {{ turn.result.retrieval.threshold.toFixed(2) }}</span>
                     <span v-if="turn.result.schema_graph">Schema 图 {{ turn.result.schema_graph.tables.length }} 表 · {{ turn.result.schema_graph.fields.length }} 字段</span>
+                  </div>
+                  <div class="execution-strip" v-if="turn.result.retrieval.hits?.length">
+                    <span>召回字段：{{ turn.result.retrieval.hits.map(hit => `${hit.table_label}.${hit.field_label}`).join('、') }}</span>
+                  </div>
+                  <div class="execution-strip" v-if="turn.result.schema_graph?.fields.some(field => field.source === 'temporal_context')">
+                    <span>为时间筛选补充：{{ turn.result.schema_graph.fields.filter(field => field.source === 'temporal_context').map(field => field.sql_name).join('、') }}</span>
+                  </div>
+                  <div class="execution-strip" v-if="turn.result.stage_timings_ms?.length">
+                    <span v-for="item in turn.result.stage_timings_ms" :key="item.stage">
+                      {{ item.stage }} {{ (item.duration_ms / 1000).toFixed(2) }} 秒
+                    </span>
                   </div>
                 </details>
 
@@ -661,8 +681,8 @@ function clarificationHint(result: QueryResult) {
           </div>
 
           <div v-if="loading" class="assistant-message loading-message">
-            <div class="message-avatar assistant">A</div>
-            <div class="loading-copy"><span></span><div><strong>正在分析</strong><small>理解问题并检索相关 Schema…</small></div></div>
+            <div class="message-avatar assistant">衡</div>
+            <div class="loading-copy"><span></span><div><strong>正在分析</strong><small>理解问题并匹配相关数据字段…</small></div></div>
           </div>
         </div>
         </div>
@@ -673,20 +693,30 @@ function clarificationHint(result: QueryResult) {
 
       <footer class="composer">
         <div class="composer-box">
-          <textarea v-model="input" rows="1" placeholder="向数据提问…" @keydown.enter.exact.prevent="submit()"></textarea>
+          <textarea v-model="input" rows="1" placeholder="例如：按地区统计 2026 年 8 月销售额" @keydown.enter.exact.prevent="submit()"></textarea>
           <div class="composer-meta">
             <span>问数 {{ confirmedFields.length }} 个字段 · 分析 {{ selectedAnalysisTables.length }} 张结果表</span>
             <button :disabled="!input.trim() || loading" @click="submit()">↑</button>
           </div>
         </div>
-        <small>模型可能产生偏差，缺少关键业务口径时会在对话中继续询问。</small>
+        <small>分析结果仅供参考；重要经营决策前请核对数据来源与统计口径。</small>
       </footer>
     </main>
 
-    <aside class="query-panel" :class="{ open: rightOpen }">
+    <button
+      v-if="rightOpen"
+      class="settings-backdrop"
+      type="button"
+      aria-label="关闭高级分析设置"
+      @click="rightOpen = false"
+    ></button>
+    <aside id="advanced-settings-panel" class="query-panel" :class="{ open: rightOpen }" :aria-hidden="!rightOpen">
       <div class="panel-header">
-        <div><p class="kicker">CONTEXT CONTROL</p><h2>本次上下文</h2></div>
-        <button @click="resetWorkspace">清空</button>
+        <div><p class="kicker">OPTIONAL ANALYSIS CONTEXT</p><h2>高级分析设置</h2></div>
+        <div class="panel-actions">
+          <button type="button" @click="resetWorkspace">清空</button>
+          <button class="panel-close" type="button" aria-label="关闭高级分析设置" @click="rightOpen = false">×</button>
+        </div>
       </div>
 
       <section class="context-block query-context-block">

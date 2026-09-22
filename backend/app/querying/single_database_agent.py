@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from fnmatch import fnmatch
 from typing import Any, Callable
 
@@ -57,6 +58,8 @@ class SingleDatabaseAgent:
 
         observations: list[dict[str, Any]] = []
         tool_trace: list[dict[str, Any]] = []
+        failed_sql: set[str] = set()
+        sql_retries = 0
         base_payload = {
             "query": query,
             "database": database,
@@ -75,10 +78,12 @@ class SingleDatabaseAgent:
         try:
             for call_index in range(1, self.max_tool_calls + 1):
                 payload = {**base_payload, "tool_results": observations}
+                model_started = time.perf_counter()
                 decision = self.model_client.chat_json(
                     system,
                     json.dumps(payload, ensure_ascii=False),
                 )
+                model_ms = round((time.perf_counter() - model_started) * 1000, 1)
 
                 action = str(decision.get("action") or "")
                 if action not in self.skill.output_actions:
@@ -106,6 +111,19 @@ class SingleDatabaseAgent:
                 if not isinstance(arguments, dict):
                     raise ValueError("MCP工具参数必须是JSON对象")
 
+                sql = str(arguments.get("sql") or "") if tool_name == database_tool else ""
+                if sql and sql in failed_sql:
+                    previous_failure = next(
+                        item["result"] for item in reversed(tool_trace)
+                        if item["tool"] == database_tool and item["arguments"].get("sql") == sql
+                    )
+                    return {
+                        "action": "executed",
+                        "execution": previous_failure,
+                        "tool_trace": tool_trace,
+                        "source": "model_mcp_retry_stopped_unchanged",
+                    }
+                tool_started = time.perf_counter()
                 tool_result = mcp_client.call_tool(tool_name, arguments)
                 trace = {
                     "call_index": call_index,
@@ -113,15 +131,40 @@ class SingleDatabaseAgent:
                     "arguments": arguments,
                     "result": tool_result,
                     "reason": str(decision.get("reason") or ""),
+                    "model_ms": model_ms,
+                    "tool_ms": round((time.perf_counter() - tool_started) * 1000, 1),
                 }
                 tool_trace.append(trace)
 
                 if tool_name == database_tool:
+                    if not tool_result.get("success"):
+                        error = str(tool_result.get("error") or "")
+                        if (
+                            sql_retries < 1
+                            and call_index < self.max_tool_calls
+                            and tool_result.get("retryable") is True
+                        ):
+                            failed_sql.add(sql)
+                            sql_retries += 1
+                            observations.append({
+                                "tool": tool_name,
+                                "result": {
+                                    "success": False,
+                                    "sql": sql,
+                                    "error": error,
+                                    "error_type": tool_result.get("error_type"),
+                                },
+                                "instruction": (
+                                    "上次SQL执行失败。仅根据已提供的Schema和错误修正SQL；"
+                                    "不得重复原SQL，不得放宽权限或只读约束。"
+                                ),
+                            })
+                            continue
                     return {
                         "action": "executed",
                         "execution": tool_result,
                         "tool_trace": tool_trace,
-                        "source": "model_mcp",
+                        "source": "model_mcp_retry" if sql_retries else "model_mcp",
                     }
 
                 observations.append({"tool": tool_name, "result": tool_result})

@@ -11,3 +11,7 @@ backend/.env
 frontend/node_modules/
 frontend/dist/
 frontend/.env
+.DS_Store
+.pytest_cache/
+*.tsbuildinfo
+backend/data/schema_store.json

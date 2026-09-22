@@ -149,12 +149,14 @@ export interface QueryResult {
     question: string
     reason: string
     options: ClarificationOption[]
+    allow_free_text?: boolean
   }
   steps: string[]
   sql: string | null
   columns: string[]
   rows: Record<string, string | number | null>[]
   analysis: string | null
+  stage_timings_ms?: { stage: string; duration_ms: number }[]
   saved: boolean
   result_title?: string | null
   standalone_query?: string | null

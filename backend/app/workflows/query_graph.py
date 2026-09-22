@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+import time
 from typing import Any
 
 from langgraph.checkpoint.memory import InMemorySaver
@@ -22,6 +24,7 @@ from ..retrieval import SchemaGraphBuilder, SchemaIndex
 from ..security import AccessScope
 from ..skills import SkillRegistry
 from .result_builder import ResultBuilder
+from .query_intent import QueryIntentGuard
 from .state import QueryState
 
 
@@ -65,14 +68,17 @@ class QueryWorkflow:
 
     def _compile(self):
         builder = StateGraph(QueryState)
-        builder.add_node("preprocess", self._preprocess)
-        builder.add_node("respond_directly", self._respond_directly)
-        builder.add_node("answer_qa", self._answer_qa)
-        builder.add_node("retrieve_schema", self._retrieve_schema)
-        builder.add_node("human_clarification", self._human_clarification)
-        builder.add_node("prepare_single_database", self._prepare_single_database)
-        builder.add_node("execute_single_database", self._execute_single_database)
-        builder.add_node("run_multi_database", self._run_multi_database)
+        for name, handler in (
+            ("preprocess", self._preprocess),
+            ("respond_directly", self._respond_directly),
+            ("answer_qa", self._answer_qa),
+            ("retrieve_schema", self._retrieve_schema),
+            ("human_clarification", self._human_clarification),
+            ("prepare_single_database", self._prepare_single_database),
+            ("execute_single_database", self._execute_single_database),
+            ("run_multi_database", self._run_multi_database),
+        ):
+            builder.add_node(name, self._timed_node(name, handler))
         builder.add_edge(START, "preprocess")
         builder.add_conditional_edges(
             "preprocess",
@@ -114,6 +120,21 @@ class QueryWorkflow:
             {"human_clarification": "human_clarification", "end": END},
         )
         return builder.compile(checkpointer=self.checkpointer)
+
+    @staticmethod
+    def _timed_node(name: str, handler):
+        def run(state: QueryState) -> dict[str, Any]:
+            started = time.perf_counter()
+            update = handler(state)
+            timings = [*(state.get("stage_timings_ms") or []), {
+                "stage": name,
+                "duration_ms": round((time.perf_counter() - started) * 1000, 1),
+            }]
+            update["stage_timings_ms"] = timings
+            if update.get("result"):
+                update["result"] = {**update["result"], "stage_timings_ms": timings}
+            return update
+        return run
 
     @staticmethod
     def run_config(task_id: str) -> dict[str, Any]:
@@ -190,12 +211,14 @@ class QueryWorkflow:
     def _retrieve_schema(self, state: QueryState) -> dict[str, Any]:
         standalone_query = state["standalone_query"]
         extraction = state.get("extraction") or {}
+        workspace = state.get("workspace") or {}
+        confirmed_metric = (workspace.get("confirmed_parameters") or {}).get("ranking_metric")
+        metric_terms = [str(confirmed_metric)] if confirmed_metric else []
         retrieval = self.schema_index.retrieve(
             standalone_query,
-            retrieval_terms=list(extraction.get("retrieval_terms") or []),
+            retrieval_terms=list(dict.fromkeys([*(extraction.get("retrieval_terms") or []), *metric_terms])),
             access_scope=state.get("access_scope"),
         )
-        workspace = state.get("workspace") or {}
         query_workspace = {
             "schema_fields": list(workspace.get("schema_fields") or []),
             "confirmed_schema_tables": list(workspace.get("confirmed_schema_tables") or []),
@@ -207,9 +230,13 @@ class QueryWorkflow:
             state.get("access_scope"),
         )
         retrieval["extraction"] = extraction
+        has_time_filter = bool(extraction.get("time_expressions")) or bool(
+            re.search(r"\d{4}\s*年\s*\d{1,2}\s*月|\d{4}-\d{1,2}|本月|上月|今天|昨日|本周|去年", standalone_query)
+        )
         schema_graph = self.graph_builder.build(
             retrieval["hits"],
             state.get("access_scope"),
+            include_time_fields=has_time_filter,
         )
         retrieval["schema_graph"] = schema_graph
         databases = sorted({
@@ -252,6 +279,29 @@ class QueryWorkflow:
 
     def _prepare_single_database(self, state: QueryState) -> dict[str, Any]:
         workspace = dict(state.get("workspace") or {})
+        confirmed = workspace.get("confirmed_parameters") or {}
+        if QueryIntentGuard.missing_ranking_metric(
+            state.get("query") or "",
+            state.get("extraction") or {},
+            confirmed,
+            state.get("access_scope") or {},
+        ):
+            return {
+                "workflow_mode": "single_database_agent",
+                "clarification": {
+                    "parameter": "ranking_metric",
+                    "question": "你希望按哪个具体指标排名？请直接回复指标名称。",
+                    "reason": (
+                        f"未在当前可访问的数据表中识别指标“{confirmed['ranking_metric']}”，请换一个具体指标。"
+                        if confirmed.get("ranking_metric")
+                        else "当前问题没有明确、可在已授权Schema中识别的排名指标；不同指标可能得到不同结果。"
+                    ),
+                    "options": [],
+                    "allow_free_text": True,
+                },
+                "mcp_tool_trace": [],
+                "direct_sql": "",
+            }
         database = (state.get("database_names") or ["askdata_mock"])[0]
         decision = self.single_database_agent.prepare(
             state["standalone_query"],
@@ -288,20 +338,33 @@ class QueryWorkflow:
             columns=list(raw_execution.get("columns") or []),
             rows=list(raw_execution.get("rows") or []),
             error=raw_execution.get("error"),
+            error_type=raw_execution.get("error_type"),
+            retryable=bool(raw_execution.get("retryable")),
         )
         trace = list(state.get("mcp_tool_trace") or [])
-        log = [
-            {
+        log: list[dict[str, Any]] = []
+        previous_database_failure: dict[str, Any] | None = None
+        for item in trace:
+            if item.get("tool") == f"query_{database}" and previous_database_failure:
+                log.append({
+                    "stage": "repair_and_retry",
+                    "success": bool(item.get("result", {}).get("success")),
+                    "previous_error_type": previous_database_failure.get("error_type"),
+                    "attempt": item.get("call_index"),
+                })
+            log.append({
                 "stage": "mcp_tool_call",
-                "success": not bool(item.get("result", {}).get("error")),
+                "success": bool(item.get("result", {}).get("success", not item.get("result", {}).get("error"))),
                 **item,
-            }
-            for item in trace
-        ]
+            })
+            if item.get("tool") == f"query_{database}" and not item.get("result", {}).get("success"):
+                previous_database_failure = item.get("result", {})
         log.append({
             "stage": "execute_duckdb",
             "success": execution.success,
             "error": execution.error,
+            "error_type": execution.error_type,
+            "retryable": execution.retryable,
             "via": "mcp",
         })
         database_call = next(

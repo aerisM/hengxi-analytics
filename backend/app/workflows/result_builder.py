@@ -70,6 +70,7 @@ class ResultBuilder:
             question=str(payload.get("question") or "请补充本次查询所需信息"),
             reason=str(payload.get("reason") or "该信息会改变查询结果"),
             options=payload.get("options") or [],
+            allow_free_text=bool(payload.get("allow_free_text")),
         )
         labels = "、".join(item.label for item in clarification.options)
         return QueryResult(
@@ -78,7 +79,11 @@ class ResultBuilder:
             route="database_query",
             message="查询已暂停，等待你的补充信息。",
             clarification=clarification,
-            analysis=f"{clarification.question} 你可以直接回复：{labels}。",
+            analysis=(
+                f"{clarification.question} 请回复具体指标名称。"
+                if clarification.allow_free_text
+                else f"{clarification.question} 你可以直接回复：{labels}。"
+            ),
             route_reason=str(state.get("intent", {}).get("reason") or "问数"),
             retrieval=ResultBuilder.public_retrieval(state.get("retrieval") or {}),
             standalone_query=state.get("standalone_query"),

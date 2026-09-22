@@ -307,6 +307,60 @@ class InvalidSqlClient(FakeModelClient):
         return super().chat_json(system, user)
 
 
+class RepairingSqlClient(FakeModelClient):
+    def chat_json(self, system: str, user: str) -> dict:
+        if system.startswith("你是单数据库问数智能体"):
+            observations = json.loads(user).get("tool_results", [])
+            sql = (
+                "SELECT region AS '销售地区', ROUND(SUM(paid_amount), 2) AS '销售额' "
+                "FROM orders_current WHERE status = '已支付' GROUP BY region"
+                if observations else "SELECT missing_column FROM columns"
+            )
+            return {
+                "action": "call_tool",
+                "tool_name": "query_askdata_mock",
+                "arguments": {"sql": sql},
+                "reason": "根据数据库错误修正字段" if observations else "首次生成SQL",
+            }
+        return super().chat_json(system, user)
+
+
+class UnsafeSqlClient(FakeModelClient):
+    def chat_json(self, system: str, user: str) -> dict:
+        if system.startswith("你是单数据库问数智能体"):
+            return {
+                "action": "call_tool",
+                "tool_name": "query_askdata_mock",
+                "arguments": {"sql": "SELECT * FROM orders_current"},
+                "reason": "测试安全拒绝不触发重试",
+            }
+        return super().chat_json(system, user)
+
+
+class CustomerRankingClient(FakeModelClient):
+    def chat_json(self, system: str, user: str) -> dict:
+        if system.startswith("你是单数据库问数智能体"):
+            confirmed = json.loads(user).get("confirmed_parameters", {})
+            metric = confirmed.get("ranking_metric")
+            aggregate = (
+                "SUM(o.paid_amount) AS '排名指标'"
+                if metric == "销售额"
+                else "COUNT(DISTINCT o.order_id) AS '排名指标'"
+            )
+            return {
+                "action": "call_tool",
+                "tool_name": "query_askdata_mock",
+                "arguments": {"sql": (
+                    f"SELECT c.customer_name AS '客户名称', {aggregate} "
+                    "FROM orders_current o JOIN customers c ON o.customer_id = c.customer_id "
+                    "WHERE o.order_date >= '2026-08-01' AND o.order_date < '2026-09-01' "
+                    "GROUP BY c.customer_name ORDER BY 2 DESC LIMIT 1"
+                )},
+                "reason": "使用用户确认的排名指标",
+            }
+        return super().chat_json(system, user)
+
+
 class AskDataServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.temp_dir = tempfile.TemporaryDirectory()
@@ -345,6 +399,36 @@ class AskDataServiceTest(unittest.TestCase):
         self.assertEqual(result.status, "completed")
         self.assertTrue(result.rows)
         self.assertIn("GROUP BY region", result.sql)
+
+    def test_ambiguous_best_customer_requires_metric_confirmation(self) -> None:
+        client = CustomerRankingClient()
+        index = SchemaIndex(client, self.service.config, Path(self.temp_dir.name) / "ranking_index.json")
+        service = AskDataService(client, index)  # type: ignore[arg-type]
+
+        waiting = service.submit("查询2026年8月表现最好的客户", "ranking-session")
+
+        self.assertEqual(waiting.status, "waiting_clarification")
+        self.assertEqual(waiting.clarification.parameter, "ranking_metric")
+        self.assertTrue(waiting.clarification.allow_free_text)
+        self.assertEqual(waiting.clarification.options, [])
+        self.assertIsNone(waiting.sql)
+
+        result = service.submit("销售额", "ranking-session")
+
+        self.assertEqual(result.task_id, waiting.task_id)
+        self.assertEqual(result.status, "completed")
+        self.assertIn("SUM(o.paid_amount)", result.sql)
+
+        count_waiting = service.submit("查询2026年8月表现最好的客户", "ranking-count-session")
+        count_result = service.submit("订单数", "ranking-count-session")
+        self.assertEqual(count_result.status, "completed")
+        self.assertIn("COUNT(DISTINCT o.order_id)", count_result.sql)
+
+        unknown_waiting = service.submit("查询2026年8月表现最好的客户", "ranking-unknown-session")
+        unknown_result = service.submit("利润", "ranking-unknown-session")
+        self.assertEqual(unknown_result.task_id, unknown_waiting.task_id)
+        self.assertEqual(unknown_result.status, "waiting_clarification")
+        self.assertIsNone(unknown_result.sql)
 
     def test_natural_language_clarification_resumes_original_task(self) -> None:
         waiting = self.service.submit("歧义查询各地区销售额", "natural-session")
@@ -615,6 +699,36 @@ class AskDataServiceTest(unittest.TestCase):
         self.assertEqual(stages[-1], "execute_duckdb")
         self.assertNotIn("repair_and_retry", stages)
         self.assertIn("missing_column", result.analysis)
+
+    def test_sql_execution_error_is_repaired_once(self) -> None:
+        client = RepairingSqlClient()
+        index = SchemaIndex(client, self.service.config, Path(self.temp_dir.name) / "repair_index.json")
+        service = AskDataService(client, index)  # type: ignore[arg-type]
+
+        result = service.submit("查询本月各地区销售额", "repair-session")
+
+        self.assertEqual(result.status, "completed")
+        calls = [item for item in result.execution_log if item["stage"] == "mcp_tool_call"]
+        self.assertEqual(len(calls), 2)
+        self.assertFalse(calls[0]["success"])
+        self.assertTrue(calls[1]["success"])
+        self.assertEqual(calls[0]["result"]["error_type"], "sql_reference")
+        self.assertTrue(calls[0]["result"]["retryable"])
+        self.assertIn("repair_and_retry", [item["stage"] for item in result.execution_log])
+        self.assertEqual(result.tool_calls[0]["arguments"]["sql_source"], "model_mcp_retry")
+        self.assertTrue(any(item["stage"] == "retrieve_schema" for item in result.stage_timings_ms))
+
+    def test_sql_safety_rejection_does_not_retry(self) -> None:
+        client = UnsafeSqlClient()
+        index = SchemaIndex(client, self.service.config, Path(self.temp_dir.name) / "unsafe_sql_index.json")
+        service = AskDataService(client, index)  # type: ignore[arg-type]
+
+        result = service.submit("查询本月各地区销售额", "unsafe-sql-session")
+
+        self.assertEqual(result.status, "failed")
+        calls = [item for item in result.execution_log if item["stage"] == "mcp_tool_call"]
+        self.assertEqual(len(calls), 1)
+        self.assertIn("SELECT *", result.analysis)
 
 
 if __name__ == "__main__":
