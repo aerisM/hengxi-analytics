@@ -1,121 +1,105 @@
-# 衡析 · 企业经营分析工作台
+# 衡析 · 企业经营数据智能查询与分析平台
 
-衡析是面向企业经营数据查询与分析场景的智能问数与分析应用。业务人员可以用自然语言查询示例数据库，查看表格、SQL、结果说明，并基于已有结果生成图表或分析报告。
+衡析是面向企业经营分析场景的自然语言问数应用。用户可以用自然语言提出数据问题，系统完成 Schema 检索、必要的业务口径澄清、SQL 生成与安全执行，并返回表格、结果说明、图表配置或分析报告。
 
-> 当前版本使用仓库中的合成演示数据和固定演示账号，尚未部署为生产系统。
+> 当前版本使用仓库内的合成数据进行本地演示与评测，不应直接连接生产或敏感数据库。
 
-## 能做什么
+## 核心能力
 
-- **自然语言查数**：将销售、客户等经营问题路由到数据库查询流程，生成并执行只读 SQL。
-- **字段级 Schema 检索**：结合 BM25、向量召回、RRF 融合与重排序，为 SQL 生成提供相关表、字段和关联关系。
-- **必要时澄清口径**：当排名指标等关键信息不明确时暂停查询，用户补充后继续；明确的问题可直接执行。
-- **安全与失败处理**：执行前检查单语句、只读、`SELECT *`、表名及访问范围；对可修正的 SQL 语法或引用错误最多尝试一次模型修正，不对权限或数据源故障盲目重试。
-- **结果复用**：查看、保存、导出查询结果，并基于已有结果进行问答、图表展示和报告生成。
+- **Schema RAG**：使用 BM25、1,024 维 Embedding、RRF 与 Rerank 检索相关字段，并根据表关系生成 Schema 图。
+- **Agent 工作流**：通过 LangGraph 编排请求预处理、意图路由、数据库查询和已有结果分析。
+- **Human-in-the-loop**：当“最好”“最重要”等问题缺少排名指标时暂停执行，用户补充口径后恢复工作流。
+- **安全执行与修复**：通过 SQLGlot 限制只读单语句、`SELECT *`、未知表和越权表；对可恢复的 SQL 错误最多修复一次。
+- **结果分析**：支持结果表格、SQL 查看、Excel 导出、自然语言解释、图表配置和分析报告。
 
-查询主链路：
+## 工作流程
 
-```text
-用户问题 → 请求预处理与路由 → Schema 检索/建图 → 必要时澄清
-        → SQL 生成 → MCP 数据库工具 → 安全校验与执行
-        → 可修正错误的一次重试 → 表格与结果说明
+```mermaid
+flowchart LR
+    U[自然语言问题] --> F[Vue 3]
+    F --> A[FastAPI]
+    A --> G[LangGraph 工作流]
+    G --> R[Schema RAG]
+    R --> H{需要澄清?}
+    H -- 是 --> C[用户确认口径]
+    C --> G
+    H -- 否 --> S[生成 SQL]
+    S --> V[SQLGlot 安全校验]
+    V --> M[MCP 数据库工具]
+    M --> D[DuckDB / 合成 CSV]
+    D --> O[结果解释与分析]
 ```
 
-后端使用 Python、FastAPI、LangGraph、DuckDB、SQLGlot 和进程内 MCP 工具；前端使用 Vue 3、TypeScript 和 Vite。模型接口默认配置为阿里云百炼兼容接口，并使用 Qwen、`text-embedding-v4` 与 `qwen3-rerank`。代码中的 `askdata` 标识保留为内部模块、API 和数据集名称；“衡析”是当前界面品牌。
+技术栈：**Python、FastAPI、Vue 3、LangGraph、Qwen、MCP、DuckDB、SQLGlot**。
 
-## 快速开始
+## 评测结果
 
-环境：Python 3.11、Node.js 20.19+、npm，以及可用的聊天、Embedding 和 Rerank 模型额度。以下命令均从仓库根目录开始。
+固定评测集包含两套合成数据库、30 道明确查询和 10 道口径模糊问题，覆盖聚合、时间过滤、比例计算及两至四表关联。
 
-1. 安装后端依赖并创建配置。macOS/Linux：
+| 指标 | 结果 |
+| --- | ---: |
+| 必需 Schema 字段召回率 | **96.0%（120/125）** |
+| 完整 Schema 召回率 | **83.3%（25/30）** |
+| SQL 执行成功率 | **100%（30/30）** |
+| 严格结果一致率 | **80.0%（24/30）** |
+| 澄清召回率 / 精确率 | **100%（10/10）/ 100%（10/10）** |
+| 端到端延迟 | **P50 29.48s / P95 51.00s** |
+| 后端自动化测试 | **71/71 通过** |
 
-   ```bash
-   cd backend
-   python3.11 -m venv .venv
-   ./.venv/bin/python -m pip install -r requirements.txt
-   cp .env.example .env
-   ```
+“严格结果一致”要求模型结果与人工标准 SQL 的行列结构和数值一致；SQL 能够执行不代表业务结果一定正确。详细方法和失败分析见[评测报告](backend/evaluation/REPORT-v2.md)，原始记录见[extended-final.json](backend/evaluation/results/extended-final.json)。
 
-   Windows PowerShell：
+## 快速启动
 
-   ```powershell
-   cd backend
-   py -3.11 -m venv .venv
-   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-   Copy-Item .env.example .env
-   ```
+环境要求：Python 3.11、Node.js 20.19+、npm，以及可用的阿里云百炼模型额度。
 
-2. 在 `backend/.env` 中填入自己的 `LLM_API_KEY`，并检查模型名及接口地址。中国站百炼的默认地址已经写在 `.env.example` 中；不同账号可用模型可能不同，请以自己的控制台为准。**不要提交 `.env` 或将 API Key 填入前端。**
-
-3. 在一个终端启动后端：
-
-   ```bash
-   cd backend
-   ./.venv/bin/python run.py
-   ```
-
-   Windows 使用 `.\.venv\Scripts\python.exe run.py`。
-
-4. 在另一个终端启动前端：
-
-   ```bash
-   cd frontend
-   npm install
-   npm run dev
-   ```
-
-5. 打开 `http://127.0.0.1:5173`。后端 API 文档位于 `http://127.0.0.1:8000/docs`，健康检查位于 `http://127.0.0.1:8000/api/health`。
-
-首次查询可能需要建立 Schema 向量索引，会调用 Embedding 接口并产生一定费用与等待时间。之后若 Schema 和模型配置未变化，会复用本地索引。
-
-## 演示账号与问题
-
-| 账号 | 密码 | 可访问的演示数据 |
-| --- | --- | --- |
-| `admin` | `admin123` | 全部演示数据 |
-| `sales` | `sales123` | `ecommerce_ops` 电商运营数据 |
-| `mock` | `mock123` | `askdata_mock` 基础销售数据 |
-
-这些账号是进程内的固定演示账号，不具备生产级认证能力。服务重启后登录令牌会失效。
-
-可先使用基础销售数据提问：
-
-- `按地区统计2026年8月销售额`
-- `按客户等级统计2026年8月销售额`
-- `对比2026年8月各地区销售额与销售目标`
-
-查询后可查看 SQL、保存结果、导出 Excel。右上角的“高级分析设置”是可选功能，可手动指定查询字段或加入已保存的结果表；普通查询无需预先设置。
-
-## 验证
-
-后端测试（`pytest` 为开发测试依赖）：
+### 1. 启动后端
 
 ```bash
 cd backend
-./.venv/bin/python -m pip install pytest
-./.venv/bin/python -m pytest -q
+python3.11 -m venv .venv
+./.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
 ```
 
-Windows 将上面的 Python 路径替换为 `.\.venv\Scripts\python.exe`。前端构建检查：
+在 `backend/.env` 中填写自己的 `LLM_API_KEY`。不要提交 `.env` 或将 API Key 写入前端。
+
+```bash
+./.venv/bin/python run.py
+```
+
+### 2. 启动前端
 
 ```bash
 cd frontend
-npm run build
+npm install
+npm run dev
 ```
 
-测试覆盖了 SQL 权限和只读校验、字段/表引用错误后的有界重试、澄清后续跑、Schema 检索与示例数据查询。另曾在合成销售数据上进行一次受控真实 Qwen 验证：人为注入不存在的金额字段后，模型根据 DuckDB 错误改用正确字段并执行成功。
+打开 `http://127.0.0.1:5173`。首次查询会构建 Schema 向量索引，可能产生少量模型调用费用。
+
+### 3. 演示账号
+
+| 账号 | 密码 | 数据范围 |
+| --- | --- | --- |
+| `sales` | `sales123` | 电商经营数据 |
+| `mock` | `mock123` | 基础销售数据 |
+| `admin` | `admin123` | 全部演示数据 |
+
+可从以下问题开始：
+
+- `按地区统计2026年8月销售额`
+- `按客户等级统计2026年8月销售额`
+- `查询2026年8月表现最好的客户`
+
+## 测试
+
+```bash
+cd backend
+./.venv/bin/python -m pytest -q
+```
 
 ## 当前边界
 
-- 数据集为合成演示数据；未验证真实企业数据接入、并发负载或生产部署。
-- 排名等问题的业务语义仍可能与生成的 SQL 不完全一致，重要结论应检查 SQL、时间范围和指标定义。
-- SQL 自动修正只针对部分可修正的执行错误，最多重试一次；安全规则拒绝、权限不足和数据源故障不会通过改写 SQL 绕过。
-- 检索召回和查询正确性尚无针对当前版本的系统性公开评测，不应将历史版本的指标当作当前版本结果。
-
-## 目录
-
-```text
-backend/app/         FastAPI、工作流、Schema 检索、SQL 执行与 MCP 工具
-backend/data/        合成演示数据
-backend/tests/       后端回归测试
-frontend/src/        Vue 页面、图表与结果组件
-```
+- 数据均为合成数据，尚未验证真实企业数据、高并发负载或生产部署。
+- 困难查询的严格结果一致率低于简单和中等查询，重要结论仍应检查 SQL、时间范围和指标口径。
+- DuckDB 用于本地只读分析；生产接入应通过只读账号、权限隔离或企业数据仓库完成。

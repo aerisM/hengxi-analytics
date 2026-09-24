@@ -1,0 +1,72 @@
+{
+  "version": "v1",
+  "dataset": "askdata_mock",
+  "clear_cases": [
+    {
+      "id": "clear_01",
+      "query": "统计2026年8月各地区的实付销售额，按销售额从高到低排列",
+      "required_fields": ["orders_current.region", "orders_current.paid_amount", "orders_current.order_date"],
+      "gold_sql": "SELECT region AS 地区, SUM(paid_amount) AS 销售额 FROM orders_current WHERE order_date >= '2026-08-01' AND order_date < '2026-09-01' GROUP BY region ORDER BY 销售额 DESC"
+    },
+    {
+      "id": "clear_02",
+      "query": "统计2026年8月各客户等级的实付销售额",
+      "required_fields": ["orders_current.customer_id", "orders_current.paid_amount", "orders_current.order_date", "customers.customer_id", "customers.customer_level"],
+      "gold_sql": "SELECT c.customer_level AS 客户等级, SUM(o.paid_amount) AS 销售额 FROM orders_current o JOIN customers c ON o.customer_id = c.customer_id WHERE o.order_date >= '2026-08-01' AND o.order_date < '2026-09-01' GROUP BY c.customer_level"
+    },
+    {
+      "id": "clear_03",
+      "query": "查询2026年8月实付销售额最高的5个产品及其销售额",
+      "required_fields": ["orders_current.product_id", "orders_current.paid_amount", "orders_current.order_date", "products.product_id", "products.product_name"],
+      "gold_sql": "SELECT p.product_name AS 产品, SUM(o.paid_amount) AS 销售额 FROM orders_current o JOIN products p ON o.product_id = p.product_id WHERE o.order_date >= '2026-08-01' AND o.order_date < '2026-09-01' GROUP BY p.product_name ORDER BY 销售额 DESC LIMIT 5"
+    },
+    {
+      "id": "clear_04",
+      "query": "统计2026年8月已支付订单的数量",
+      "required_fields": ["orders_current.order_id", "orders_current.status", "orders_current.order_date"],
+      "gold_sql": "SELECT COUNT(order_id) AS 已支付订单数 FROM orders_current WHERE status = '已支付' AND order_date >= '2026-08-01' AND order_date < '2026-09-01'"
+    },
+    {
+      "id": "clear_05",
+      "query": "统计2026年8月各产品类别的平均订单金额",
+      "required_fields": ["orders_current.category", "orders_current.order_amount", "orders_current.order_date"],
+      "gold_sql": "SELECT category AS 产品类别, AVG(order_amount) AS 平均订单金额 FROM orders_current WHERE order_date >= '2026-08-01' AND order_date < '2026-09-01' GROUP BY category"
+    },
+    {
+      "id": "clear_06",
+      "query": "查询2026年8月实付销售额超过50000元的客户名称和销售额，按销售额降序",
+      "required_fields": ["orders_current.customer_id", "orders_current.paid_amount", "orders_current.order_date", "customers.customer_id", "customers.customer_name"],
+      "gold_sql": "SELECT c.customer_name AS 客户名称, SUM(o.paid_amount) AS 销售额 FROM orders_current o JOIN customers c ON o.customer_id = c.customer_id WHERE o.order_date >= '2026-08-01' AND o.order_date < '2026-09-01' GROUP BY c.customer_name HAVING SUM(o.paid_amount) > 50000 ORDER BY 销售额 DESC"
+    },
+    {
+      "id": "clear_07",
+      "query": "统计2026年8月各订单状态的订单数和实付金额",
+      "required_fields": ["orders_current.order_id", "orders_current.status", "orders_current.paid_amount", "orders_current.order_date"],
+      "gold_sql": "SELECT status AS 订单状态, COUNT(order_id) AS 订单数, SUM(paid_amount) AS 实付金额 FROM orders_current WHERE order_date >= '2026-08-01' AND order_date < '2026-09-01' GROUP BY status"
+    },
+    {
+      "id": "clear_08",
+      "query": "对比2026年7月和8月的实付销售额",
+      "required_fields": ["orders_history.paid_amount", "orders_history.order_date", "orders_current.paid_amount", "orders_current.order_date"],
+      "gold_sql": "SELECT 月份, SUM(实付金额) AS 销售额 FROM (SELECT strftime(order_date, '%Y-%m') AS 月份, paid_amount AS 实付金额 FROM orders_history WHERE order_date >= '2026-07-01' AND order_date < '2026-08-01' UNION ALL SELECT strftime(order_date, '%Y-%m') AS 月份, paid_amount AS 实付金额 FROM orders_current WHERE order_date >= '2026-08-01' AND order_date < '2026-09-01') t GROUP BY 月份"
+    },
+    {
+      "id": "clear_09",
+      "query": "列出2026年8月各地区销售负责人、销售目标和实际实付销售额",
+      "required_fields": ["orders_current.region", "orders_current.paid_amount", "orders_current.order_date", "sales_targets.region", "sales_targets.target_month", "sales_targets.target_amount", "sales_targets.owner_name"],
+      "gold_sql": "WITH actual AS (SELECT region, SUM(paid_amount) AS actual_amount FROM orders_current WHERE order_date >= '2026-08-01' AND order_date < '2026-09-01' GROUP BY region) SELECT s.region AS 地区, s.owner_name AS 负责人, s.target_amount AS 销售目标, a.actual_amount AS 实际销售额 FROM sales_targets s JOIN actual a ON s.region = a.region WHERE s.target_month = '2026-08'"
+    },
+    {
+      "id": "clear_10",
+      "query": "统计2026年8月战略客户的实付销售额总和",
+      "required_fields": ["orders_current.customer_id", "orders_current.paid_amount", "orders_current.order_date", "customers.customer_id", "customers.customer_level"],
+      "gold_sql": "SELECT SUM(o.paid_amount) AS 战略客户销售额 FROM orders_current o JOIN customers c ON o.customer_id = c.customer_id WHERE c.customer_level = '战略客户' AND o.order_date >= '2026-08-01' AND o.order_date < '2026-09-01'"
+    }
+  ],
+  "ambiguous_cases": [
+    {"id": "ambiguous_01", "query": "查询2026年8月表现最好的客户"},
+    {"id": "ambiguous_02", "query": "找出2026年8月最好的地区"},
+    {"id": "ambiguous_03", "query": "2026年8月哪个产品表现最好"},
+    {"id": "ambiguous_04", "query": "查询2026年8月重点客户里排名最高的客户"}
+  ]
+}
