@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from fnmatch import fnmatch
 from typing import Any, Callable
 
+from ..language import response_language, language_instruction
 from ..errors import PipelineStageError
 from ..mcp_runtime import LocalMcpClient
 from ..model_client import ModelClient
@@ -56,6 +57,8 @@ class DataQaAgent:
             "\"title\":\"...\",\"markdown\":\"...\","
             "\"tool_calls\":[{\"name\":\"build_bar_chart\",\"arguments\":{...}}]}"
         )
+        system += language_instruction(response_language(query))
+
         user = json.dumps(
             {
                 "query": query,

@@ -8,6 +8,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
+from ..language import response_language, choose
 from ..config import Settings, settings
 from ..database import SCHEMA
 from ..errors import PipelineStageError
@@ -152,6 +153,7 @@ class QueryWorkflow:
 
     def _preprocess(self, state: QueryState) -> dict[str, Any]:
         """生成路由、独立查询和 Schema 检索参数。"""
+        language = response_language(state["query"])
         decision = self.preprocessor.prepare(state["query"], state.get("route_context", ""))
         execution_log = list(state.get("execution_log") or [])
         if decision.source == "model_unavailable_fallback":
@@ -163,7 +165,9 @@ class QueryWorkflow:
                 "reason": decision.reason,
             })
         return {
+            "response_language": language,
             "intent": {
+                "response_language": language,
                 "action": decision.action,
                 "confidence": decision.confidence,
                 "reason": decision.reason,
@@ -278,6 +282,7 @@ class QueryWorkflow:
         return {"workspace": workspace, "clarification": None, "direct_sql": "", "result": {}}
 
     def _prepare_single_database(self, state: QueryState) -> dict[str, Any]:
+        language = state.get("response_language") or response_language(state["query"])
         workspace = dict(state.get("workspace") or {})
         confirmed = workspace.get("confirmed_parameters") or {}
         if QueryIntentGuard.missing_ranking_metric(
@@ -290,11 +295,13 @@ class QueryWorkflow:
                 "workflow_mode": "single_database_agent",
                 "clarification": {
                     "parameter": "ranking_metric",
-                    "question": "你希望按哪个具体指标排名？请直接回复指标名称。",
+                    "question": choose(language, "你希望按哪个具体指标排名？请直接回复指标名称。", "Which metric should be used for ranking? Please reply with the metric name."),
                     "reason": (
-                        f"未在当前可访问的数据表中识别指标“{confirmed['ranking_metric']}”，请换一个具体指标。"
+                        choose(language, f"未在当前可访问的数据表中识别指标“{confirmed['ranking_metric']}”，请换一个具体指标。",
+                               f"The metric '{confirmed['ranking_metric']}' was not recognized in the accessible schema. Please specify another metric.")
                         if confirmed.get("ranking_metric")
-                        else "当前问题没有明确、可在已授权Schema中识别的排名指标；不同指标可能得到不同结果。"
+                        else choose(language, "当前问题没有明确、可在已授权Schema中识别的排名指标；不同指标可能得到不同结果。",
+                                    "No explicit ranking metric was recognized in the authorized schema; different metrics may produce different results.")
                     ),
                     "options": [],
                     "allow_free_text": True,
@@ -311,6 +318,7 @@ class QueryWorkflow:
             state["retrieval"],
             workspace,
             state.get("access_scope") or {},
+            language=language,
         )
         if decision["action"] == "clarify":
             return {
@@ -393,6 +401,7 @@ class QueryWorkflow:
             final = self.response_generator.finalize(
                 state["standalone_query"], execution, state["schema_context"],
                 state.get("analysis_context", ""),
+                language=state.get("response_language") or response_language(state["query"]),
             )
         except PipelineStageError as exc:
             # 结果说明失败时仍保留已成功执行的查询结果。
@@ -400,8 +409,8 @@ class QueryWorkflow:
             final = {
                 "valid": True,
                 "reason": f"{exc.stage}失败",
-                "title": "查询结果（文字说明生成失败）",
-                "analysis": f"SQL已成功执行，但{exc.stage}失败：{exc.message}",
+                "title": choose(state.get("response_language", "zh"), "查询结果（文字说明生成失败）", "Query results (summary unavailable)"),
+                "analysis": choose(state.get("response_language", "zh"), f"SQL已成功执行，但{exc.stage}失败：{exc.message}", "SQL executed successfully, but the result summary could not be generated. The query results are still available."),
             }
         result = ResultBuilder.completed(state, [execution], execution, final, [call], log)
         return {"execution_log": log, "tool_calls": [call], "result": result.model_dump(mode="json")}
@@ -411,7 +420,7 @@ class QueryWorkflow:
         failure = SqlExecution(
             sql="",
             success=False,
-            error="当前仅支持单库直接查询；多库 Handoff 尚未启用。",
+            error=choose(state.get("response_language", "zh"), "当前仅支持单库直接查询；多库 Handoff 尚未启用。", "Only single-database queries are currently supported."),
         )
         result = ResultBuilder.failed(state, failure, [])
         return {"workflow_mode": "multi_database_pending", "result": result.model_dump(mode="json")}

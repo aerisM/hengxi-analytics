@@ -5,6 +5,7 @@ import time
 from fnmatch import fnmatch
 from typing import Any, Callable
 
+from ..language import response_language, language_instruction
 from ..errors import PipelineStageError
 from ..mcp_runtime.client import LocalMcpClient
 from ..model_client import ModelClient
@@ -35,6 +36,7 @@ class SingleDatabaseAgent:
         retrieval: dict[str, Any],
         workspace: dict[str, Any],
         access_scope: dict[str, Any],
+        language: str | None = None,
     ) -> dict[str, Any]:
         database_tool = f"query_{database}"
         mcp_client = self.mcp_client_factory(access_scope)
@@ -55,6 +57,8 @@ class SingleDatabaseAgent:
             )
 
         system = f"你是单数据库问数智能体。\n\n{self.skill.instructions}"
+
+        system += language_instruction(language or response_language(query))
 
         observations: list[dict[str, Any]] = []
         tool_trace: list[dict[str, Any]] = []

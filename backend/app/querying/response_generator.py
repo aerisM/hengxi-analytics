@@ -6,6 +6,7 @@ from typing import Any
 import sqlglot
 from sqlglot import exp
 
+from ..language import response_language, language_instruction, choose
 from ..config import Settings, settings
 from ..errors import PipelineStageError
 from ..model_client import ModelClient
@@ -29,14 +30,17 @@ class ResponseGenerator:
         execution: SqlExecution,
         schema_context: str,
         analysis_context: str,
+        language: str | None = None,
     ) -> dict[str, Any]:
-        simple_result = self._simple_grouped_result(execution, analysis_context)
+        language = language or response_language(query)
+        simple_result = self._simple_grouped_result(execution, analysis_context, language)
         if simple_result is not None:
             return simple_result
 
         system = """你是查询结果整理器。检查结果能否回答问题，并生成简短标题和一到两句说明。
 只能使用结果中真实存在的数值。只返回JSON：
 {"valid":true,"reason":"...","title":"...","analysis":"..."}。"""
+        system += language_instruction(language)
         user = (
             f"问题：{query}\nSQL：{execution.sql}\n列：{execution.columns}\n"
             f"结果数据：{execution.rows[: self.table_row_limit]}\nSchema：{schema_context}\n"
@@ -46,16 +50,16 @@ class ResponseGenerator:
             payload = self.model_client.chat_json(system, user)
             return {
                 "valid": bool(payload.get("valid", True)),
-                "reason": str(payload.get("reason") or "结果检查通过"),
-                "title": str(payload.get("title") or "查询结果"),
-                "analysis": str(payload.get("analysis") or f"查询返回{len(execution.rows)}行。"),
+                "reason": str(payload.get("reason") or choose(language, "结果检查通过", "Result validation passed")),
+                "title": str(payload.get("title") or choose(language, "查询结果", "Query results")),
+                "analysis": str(payload.get("analysis") or choose(language, f"查询返回{len(execution.rows)}行。", f"The query returned {len(execution.rows)} rows.")),
             }
         except RuntimeError as exc:
             raise PipelineStageError("result_analysis", str(exc)) from exc
 
     @staticmethod
     def _simple_grouped_result(
-        execution: SqlExecution, analysis_context: str
+        execution: SqlExecution, analysis_context: str, language: str = "zh"
     ) -> dict[str, Any] | None:
         """简单二列表格直接生成保守摘要，避免额外模型调用及数值幻觉。"""
         if analysis_context or len(execution.columns) != 2 or len(execution.rows) > 20:
@@ -77,10 +81,12 @@ class ResponseGenerator:
         count = len(execution.rows)
         return {
             "valid": True,
-            "reason": "SQL已成功执行；简单分组结果使用确定性摘要",
-            "title": f"{dimension}·{metric}",
+            "reason": choose(language, "SQL已成功执行；简单分组结果使用确定性摘要", "SQL executed successfully; a deterministic summary was used."),
+            "title": f"{metric} by {dimension}" if language == "en" else f"{dimension}·{metric}",
             "analysis": (
-                f"已按{dimension}汇总{metric}，返回{count}行结果。"
-                if count else "查询已完成，但没有符合条件的数据。"
+                choose(language, f"已按{dimension}汇总{metric}，返回{count}行结果。",
+                       f"Summarized {metric} by {dimension}; returned {count} rows.")
+                if count else choose(language, "查询已完成，但没有符合条件的数据。",
+                                     "The query completed, but no matching data was found.")
             ),
         }
