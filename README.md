@@ -1,5 +1,7 @@
 # 衡析 · 企业经营数据智能查询与分析平台
 
+[![简体中文](https://img.shields.io/badge/语言-简体中文-blue)](README.md) [![English](https://img.shields.io/badge/Language-English-lightgrey)](README.en.md)
+
 衡析是面向企业经营分析场景的自然语言问数应用。用户可以用自然语言提出数据问题，系统完成 Schema 检索、必要的业务口径澄清、SQL 生成与安全执行，并返回表格、结果说明、图表配置或分析报告。
 
 > 当前版本使用仓库内的合成数据进行本地演示与评测，不应直接连接生产或敏感数据库。
