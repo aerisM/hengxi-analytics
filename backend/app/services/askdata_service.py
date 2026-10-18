@@ -5,6 +5,7 @@ from typing import Any
 
 from langgraph.types import Command
 
+from ..language import response_language, choose
 from ..config import settings
 from ..database import SCHEMA
 from ..errors import PipelineStageError
@@ -76,14 +77,15 @@ class AskDataService:
                 task_id,
             )
         except PipelineStageError as exc:
+            language = response_language(normalized)
             result = QueryResult(
                 task_id=task_id,
                 status="failed",
                 route="data_qa" if exc.stage == "qa_answer" else "database_query",
-                message=f"处理停止：{exc.stage}失败",
-                analysis=exc.message,
-                route_reason="未使用本地语义兜底",
-                steps=[f"{exc.stage}失败，流程已停止"],
+                message=choose(language, f"处理停止：{exc.stage}失败", f"Processing stopped: {exc.stage} failed."),
+                analysis=choose(language, exc.message, "The request could not be completed. Please try again later."),
+                route_reason=choose(language, "未使用本地语义兜底", "Processing stopped without guessing a result."),
+                steps=[choose(language, f"{exc.stage}失败，流程已停止", f"The workflow stopped at {exc.stage}.")],
                 execution_log=[{"stage": exc.stage, "success": False, "error": exc.message}],
                 workflow_mode="failed_explicitly",
             )

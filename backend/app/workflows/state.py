@@ -7,6 +7,7 @@ class QueryState(TypedDict, total=False):
     """LangGraph 工作流状态。"""
 
     task_id: str
+    response_language: str
     query: str
     session_id: str
     workspace: dict[str, Any]
