@@ -1,0 +1,125 @@
+{
+  "version": "bilingual-v1",
+  "cases": [
+    {
+      "id": "clear_01",
+      "database": "askdata_mock",
+      "user_id": "demo_analyst",
+      "zh": "统计2026年8月各地区的实付销售额，按销售额从高到低排列",
+      "en": "Show total paid sales by region for August 2026, ordered by sales from highest to lowest.",
+      "expected_status": "completed",
+      "gold_sql": "SELECT region AS 地区, SUM(paid_amount) AS 销售额 FROM orders_current WHERE order_date >= '2026-08-01' AND order_date < '2026-09-01' GROUP BY region ORDER BY 销售额 DESC",
+      "required_fields": [
+        "orders_current.region",
+        "orders_current.paid_amount",
+        "orders_current.order_date"
+      ]
+    },
+    {
+      "id": "clear_02",
+      "database": "askdata_mock",
+      "user_id": "demo_analyst",
+      "zh": "统计2026年8月各客户等级的实付销售额",
+      "en": "Show total paid sales by customer tier for August 2026.",
+      "expected_status": "completed",
+      "gold_sql": "SELECT c.customer_level AS 客户等级, SUM(o.paid_amount) AS 销售额 FROM orders_current o JOIN customers c ON o.customer_id = c.customer_id WHERE o.order_date >= '2026-08-01' AND o.order_date < '2026-09-01' GROUP BY c.customer_level",
+      "required_fields": [
+        "orders_current.customer_id",
+        "orders_current.paid_amount",
+        "orders_current.order_date",
+        "customers.customer_id",
+        "customers.customer_level"
+      ]
+    },
+    {
+      "id": "clear_03",
+      "database": "askdata_mock",
+      "user_id": "demo_analyst",
+      "zh": "查询2026年8月实付销售额最高的5个产品及其销售额",
+      "en": "Show the top 5 products by paid sales in August 2026 and their paid sales amounts.",
+      "expected_status": "completed",
+      "gold_sql": "SELECT p.product_name AS 产品, SUM(o.paid_amount) AS 销售额 FROM orders_current o JOIN products p ON o.product_id = p.product_id WHERE o.order_date >= '2026-08-01' AND o.order_date < '2026-09-01' GROUP BY p.product_name ORDER BY 销售额 DESC LIMIT 5",
+      "required_fields": [
+        "orders_current.product_id",
+        "orders_current.paid_amount",
+        "orders_current.order_date",
+        "products.product_id",
+        "products.product_name"
+      ]
+    },
+    {
+      "id": "e03",
+      "database": "ecommerce_ops",
+      "user_id": "demo_current_sales",
+      "zh": "统计各会员等级的用户数量",
+      "en": "Count users by membership tier.",
+      "expected_status": "completed",
+      "gold_sql": "SELECT member_level,COUNT(DISTINCT user_id) n FROM user_memberships GROUP BY member_level",
+      "required_fields": [
+        "ecommerce_ops.user_memberships.member_level",
+        "ecommerce_ops.user_memberships.user_id"
+      ]
+    },
+    {
+      "id": "e06",
+      "database": "ecommerce_ops",
+      "user_id": "demo_current_sales",
+      "zh": "统计各支付方式成功支付的金额总和",
+      "en": "Show the total successful payment amount by payment method.",
+      "expected_status": "completed",
+      "gold_sql": "SELECT payment_method,SUM(payment_amount) amount FROM payments WHERE payment_status='success' GROUP BY payment_method",
+      "required_fields": [
+        "ecommerce_ops.payments.payment_method",
+        "ecommerce_ops.payments.payment_amount",
+        "ecommerce_ops.payments.payment_status"
+      ]
+    },
+    {
+      "id": "e07",
+      "database": "ecommerce_ops",
+      "user_id": "demo_current_sales",
+      "zh": "统计已完成退款中各退款原因的退款金额总和",
+      "en": "Show the total completed refund amount by refund reason.",
+      "expected_status": "completed",
+      "gold_sql": "SELECT refund_reason,SUM(refund_amount) amount FROM refunds WHERE refund_status='completed' GROUP BY refund_reason",
+      "required_fields": [
+        "ecommerce_ops.refunds.refund_reason",
+        "ecommerce_ops.refunds.refund_amount",
+        "ecommerce_ops.refunds.refund_status"
+      ]
+    },
+    {
+      "id": "e11",
+      "database": "ecommerce_ops",
+      "user_id": "demo_current_sales",
+      "zh": "查询各仓库可用库存低于安全库存的SKU数量",
+      "en": "Count SKUs whose available inventory is below safety stock by warehouse name.",
+      "expected_status": "completed",
+      "gold_sql": "SELECT w.warehouse_name,COUNT(DISTINCT i.sku_id) n FROM sku_inventory i JOIN warehouses w ON i.warehouse_id=w.warehouse_id WHERE i.available_qty<i.safety_stock GROUP BY w.warehouse_name",
+      "required_fields": [
+        "ecommerce_ops.sku_inventory.warehouse_id",
+        "ecommerce_ops.sku_inventory.sku_id",
+        "ecommerce_ops.sku_inventory.available_qty",
+        "ecommerce_ops.sku_inventory.safety_stock",
+        "ecommerce_ops.warehouses.warehouse_id",
+        "ecommerce_ops.warehouses.warehouse_name"
+      ]
+    },
+    {
+      "id": "amb_customers",
+      "database": "ecommerce_ops",
+      "user_id": "demo_current_sales",
+      "zh": "查询2026年8月表现最好的客户",
+      "en": "Find the best-performing customers in August 2026.",
+      "expected_status": "waiting_clarification"
+    },
+    {
+      "id": "amb_stores",
+      "database": "ecommerce_ops",
+      "user_id": "demo_current_sales",
+      "zh": "查询2026年8月表现最差的门店",
+      "en": "Find the worst-performing stores in August 2026.",
+      "expected_status": "waiting_clarification"
+    }
+  ]
+}

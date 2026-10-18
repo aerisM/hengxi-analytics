@@ -34,6 +34,33 @@ flowchart LR
 
 技术栈：**Python、FastAPI、Vue 3、LangGraph、Qwen、MCP、DuckDB、SQLGlot**。
 
+## 中英文问数
+
+支持中文和英文提问。检索索引包含英文业务同义词（如 `sales revenue`、`customer tier`、`order count`），同时保留中文业务词；已有索引在下次使用时自动按新词表重建，需要模型服务可用。
+
+| 中文 | English |
+| --- | --- |
+| 按地区统计2026年8月实付销售额 | Show total paid sales by region for August 2026. |
+| 按客户等级统计2026年8月实付销售额 | Show total paid sales by customer tier for August 2026. |
+| 查询2026年8月表现最好的客户 | Find the best-performing customers in August 2026. |
+
+- 回答、结果摘要、澄清提示，以及新生成的 SQL 列别名、分析报告和图表标题跟随问题语言。`best` / `worst` 等缺少明确指标的排名问题会先询问指标。
+- 澄清回复沿用原查询语言；同一会话中的新问题可以切换语言。可使用“用英文回答”或 `reply in Chinese` 明确指定语言。
+- 中英混合问题在未指定语言时默认中文；引号或反引号中的数据值、字段名不参与语言判断。仅数字或符号的请求默认中文。
+- 数据原值、物理表字段名、已有结果的列引用保持不变；中文地区名不会自动翻译。应用导航和 Schema 浏览界面仍以中文为主。
+
+离线对照测试使用模型替身验证语言策略及真实工作流/MCP/DuckDB 的衔接，不代表真实模型准确率。另提供 [9 组中英文对照题](backend/evaluation/cases-bilingual.json) 和 [真实模型评测脚本](backend/evaluation/run_bilingual_benchmark.py)：
+
+```bash
+cd backend
+./.venv/bin/python -m pip install -r requirements-dev.txt
+./.venv/bin/python -m pytest -q
+# 需配置 LLM_API_KEY；调用真实模型，会消耗额度。
+./.venv/bin/python evaluation/run_bilingual_benchmark.py
+```
+
+评测分别记录两种语言的状态、标准 SQL 结果一致性、字段召回情况和语言检查提示；列别名可以不同，数据值应一致。语言检查仅作辅助，需人工检查生成内容。目前尚未运行这套真实模型双语评测；下方历史评测数据来自中文题集。
+
 ## 评测结果
 
 固定评测集包含两套合成数据库、30 道明确查询和 10 道口径模糊问题，覆盖聚合、时间过滤、比例计算及两至四表关联。

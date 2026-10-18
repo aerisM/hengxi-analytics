@@ -34,6 +34,33 @@ flowchart LR
 
 Tech stack: **Python, FastAPI, Vue 3, LangGraph, Qwen, MCP, DuckDB, and SQLGlot**.
 
+## Chinese and English Queries
+
+Ask questions in Chinese or English. The schema index includes English business synonyms such as `sales revenue`, `customer tier`, and `order count` alongside the Chinese vocabulary. Existing indexes are automatically rebuilt with the updated vocabulary on next use, requiring an available model service.
+
+| Chinese | English |
+| --- | --- |
+| 按地区统计2026年8月实付销售额 | Show total paid sales by region for August 2026. |
+| 按客户等级统计2026年8月实付销售额 | Show total paid sales by customer tier for August 2026. |
+| 查询2026年8月表现最好的客户 | Find the best-performing customers in August 2026. |
+
+- Answers, summaries, clarification prompts, newly generated SQL aliases, reports, and chart titles follow the question's language. Rankings such as `best` or `worst` require an explicit metric.
+- Clarification replies retain the original query language. New questions in the same session can switch languages. Explicit requests such as `reply in Chinese` or `用英文回答` override the default.
+- Mixed Chinese/English questions default to Chinese unless a language is specified. Quoted/backtick-enclosed values and identifiers are ignored for language detection. Numeric-only or punctuation-only requests default to Chinese.
+- Source values, physical table/column names, and references to existing result columns remain unchanged. Chinese region names are not automatically translated. Application navigation and the schema browser remain primarily Chinese.
+
+Offline paired tests use a model stub to verify the language policy and integration with the real workflow, MCP, and DuckDB; they do not measure live model accuracy. A separate [nine-pair bilingual suite](backend/evaluation/cases-bilingual.json) and [live benchmark runner](backend/evaluation/run_bilingual_benchmark.py) are provided:
+
+```bash
+cd backend
+./.venv/bin/python -m pip install -r requirements-dev.txt
+./.venv/bin/python -m pytest -q
+# Requires LLM_API_KEY and consumes model credits.
+./.venv/bin/python evaluation/run_bilingual_benchmark.py
+```
+
+The benchmark records status, reference SQL result agreement, schema recall, and a language-review hint for each language. Column aliases may differ; data values should match. Language detection is only a review aid and generated text should be checked manually. This live bilingual suite has not yet been run; the historical results below come from Chinese questions.
+
 ## Evaluation Results
 
 The fixed evaluation set includes two synthetic databases, 30 unambiguous queries, and 10 questions with ambiguous business criteria. It covers aggregation, time filtering, ratio calculations, and joins across two to four tables.
