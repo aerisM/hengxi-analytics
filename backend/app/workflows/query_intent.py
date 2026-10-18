@@ -11,7 +11,7 @@ from ..security import AccessScope
 class QueryIntentGuard:
     """校验排名查询的必要业务口径，而非匹配特定查询对象。"""
 
-    _ranking_cues = re.compile(r"排名|排行|最高|最低|最多|最少|最好|最佳|前\s*\d+|\btop\s*\d*|\brank(?:ing)?\b", re.I)
+    _ranking_cues = re.compile(r"排名|排行|最高|最低|最多|最少|最好|最佳|前\s*\d+|\btop\s*\d*|\brank(?:ing)?\b|\b(?:best|worst|highest|lowest|most|fewest)\b", re.I)
 
     @classmethod
     def missing_ranking_metric(
@@ -31,8 +31,16 @@ class QueryIntentGuard:
 
     @staticmethod
     def _matches_metric(text: str, aliases: set[str]) -> bool:
-        normalized = re.sub(r"\s+", "", text).lower()
-        return any(alias in normalized for alias in aliases)
+        normalized = re.sub(r"\s+", " ", text).strip().lower()
+        for alias in aliases:
+            if re.search(r"[a-z]", alias):
+                # Do not accept 'rate' in 'corporate' or 'orders' as a count metric.
+                pattern = r"(?<![a-z0-9_])" + re.escape(alias).replace(r"\ ", r"\s+") + r"(?![a-z0-9_])"
+                if re.search(pattern, normalized):
+                    return True
+            elif alias in normalized.replace(" ", ""):
+                return True
+        return False
 
     @staticmethod
     def _metric_aliases(scope: AccessScope) -> set[str]:
@@ -44,6 +52,8 @@ class QueryIntentGuard:
             for field in table.get("fields", []):
                 names = [
                     str(field.get("label") or ""),
+                    str(field.get("name") or ""),
+                    str(field.get("name") or "").replace("_", " "),
                     *(str(item) for item in field.get("aliases") or []),
                     *(str(item) for item in SYNONYMS.get(field.get("name"), [])),
                 ]
@@ -52,6 +62,7 @@ class QueryIntentGuard:
                 elif field.get("role") == "identifier":
                     aliases.update(
                         name.lower() for name in names
-                        if len(name) >= 2 and any(marker in name for marker in ("数", "量", "笔"))
+                        if len(name) >= 2 and (any(marker in name for marker in ("数", "量", "笔"))
+                            or "count" in name or "number of" in name)
                     )
         return aliases

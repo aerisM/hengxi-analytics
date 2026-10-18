@@ -15,16 +15,36 @@ from .store import FieldDocument, LocalSchemaStore
 
 
 SYNONYMS = {
-    "paid_amount": ["销售额", "成交额", "收入", "实收", "实付"],
-    "target_amount": ["销售目标", "目标额", "业绩目标"],
-    "order_id": ["订单数", "笔数", "订单量"],
-    "region": ["地区", "区域", "大区"],
-    "category": ["品类", "类别", "产品类型"],
-    "order_date": ["时间", "日期", "下单时间"],
-    "status": ["状态", "支付状态", "退款", "取消"],
-    "customer_name": ["客户", "客户名称", "企业名称"],
-    "customer_level": ["客户等级", "客户层级", "客户级别"],
-    "product_name": ["产品", "商品", "产品名称"],
+    'paid_amount': ['销售额', '成交额', '收入', '实收', '实付', 'sales revenue', 'paid sales', 'revenue', 'sales amount', 'amount paid'],
+    'target_amount': ['销售目标', '目标额', '业绩目标', 'sales target', 'target revenue'],
+    'order_id': ['订单数', '笔数', '订单量', 'order count', 'number of orders', 'orders'],
+    'region': ['地区', '区域', '大区', 'region', 'area'],
+    'category': ['品类', '类别', '产品类型', 'category', 'product category'],
+    'order_date': ['时间', '日期', '下单时间', 'order date', 'order time'],
+    'status': ['状态', '支付状态', '退款', '取消', 'status', 'order status'],
+    'customer_name': ['客户', '客户名称', '企业名称', 'customer', 'customer name'],
+    'customer_level': ['客户等级', '客户层级', '客户级别', 'customer tier', 'customer level'],
+    'product_name': ['产品', '商品', '产品名称', 'product', 'product name'],
+    'order_amount': ['order amount', 'gross sales'],
+    'ordered_at': ['order date', 'order time'],
+    'member_level': ['membership tier', 'member level'],
+    'store_name': ['store', 'store name'],
+    'payment_amount': ['payment amount'],
+    'payment_status': ['payment status'],
+    'payment_method': ['payment method'],
+    'refund_amount': ['refund amount'],
+    'refund_reason': ['refund reason'],
+    'refund_status': ['refund status'],
+    'ad_cost': ['advertising cost', 'ad spend'],
+    'attributed_revenue': ['attributed revenue'],
+    'conversion_rate': ['conversion rate'],
+    'available_qty': ['available inventory', 'available stock'],
+    'safety_stock': ['safety stock'],
+    'on_time_rate': ['on time delivery rate'],
+    'category_name': ['category name', 'product category'],
+    'package_count': ['package count', 'number of packages'],
+    'carrier_name': ['carrier', 'shipping carrier'],
+    'supplier_grade': ['supplier grade', 'supplier tier'],
 }
 
 
@@ -343,7 +363,8 @@ class SchemaIndex:
                 ]
                 profile = self._field_profile(connection, sql_table_name, field)
             aliases = list(dict.fromkeys([
-                *field.get("aliases", []), *SYNONYMS.get(field["name"], [])
+                *field.get("aliases", []), *SYNONYMS.get(field["name"], []),
+                field["name"].replace("_", " "),
             ]))
             samples_text = "、".join(str(item) for item in samples)
             relations = [
@@ -374,6 +395,11 @@ class SchemaIndex:
             keyword_text = str(index_content.get("keyword_text") or default_keyword_text)
             semantic_text = str(index_content.get("vector_text") or default_semantic_text)
             rerank_text = str(index_content.get("rerank_text") or default_rerank_text)
+            # Prebuilt ecommerce documents must receive the same bilingual vocabulary.
+            vocabulary = " ".join(aliases)
+            keyword_text = f"{keyword_text} {vocabulary}"
+            semantic_text = f"{semantic_text} Business terms: {vocabulary}."
+            rerank_text = f"{rerank_text} Business terms: {vocabulary}."
             output.append({
                 "doc_id": f"{table['id']}.{field['name']}",
                 "database_id": table.get("database", "askdata_mock"),
@@ -470,7 +496,8 @@ class SchemaIndex:
     def _schema_signature() -> str:
         payload = json.dumps(
             {
-                "store_version": "csv_duckdb_v1",
+                "store_version": "csv_duckdb_bilingual_v2",
+                "synonyms": SYNONYMS,
                 "schema": SCHEMA,
                 "relations": RELATIONS,
             },
