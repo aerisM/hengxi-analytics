@@ -4,6 +4,7 @@ import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
+from .language import response_language, language_instruction, choose
 from .errors import PipelineStageError
 from .model_client import ModelClient
 
@@ -83,6 +84,11 @@ metrics只填写用户明确说出的指标，不要从“最好”等评价词�
 database_query必须填写standalone_query和retrieval，response为空。
 data_qa必须清空standalone_query、response和retrieval。
 direct_response必须填写response，并清空standalone_query和retrieval。不要猜表名。"""
+        language = response_language(query)
+        system += language_instruction(language)
+        system += ("\nSupport Chinese and English requests. Preserve the request language in standalone_query. "
+                   "Extract schema search terms in both languages when equivalent; do not invent metrics "
+                   "or translate literal filter values. Treat best/worst as ambiguous without a metric.")
         user = f"当前问题：{query}\n近期轻量上下文：{recent_context or '无'}"
         try:
             payload = self.model_client.chat_json(system, user)
@@ -95,8 +101,8 @@ direct_response必须填写response，并清空standalone_query和retrieval。�
             return PreparedRequest(
                 action="direct_response",
                 confidence=0.0,
-                reason=f"预处理模型不可用，已启用保守兜底：{exc}",
-                response="大模型服务暂时不可用，请稍后重试。",
+                reason=choose(language, f"预处理模型不可用，已启用保守兜底：{exc}", "The preprocessing model is unavailable; no database query was attempted."),
+                response=choose(language, "大模型服务暂时不可用，请稍后重试。", "The model service is temporarily unavailable. Please try again later."),
                 source="model_unavailable_fallback",
             )
         try:
